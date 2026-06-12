@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>APK Extractor</title>
+<style>
+  :root {
+    --bg: #0f1117; --bg2: #1a1d27; --bg3: #22263a;
+    --accent: #6c63ff; --accent2: #4ade80;
+    --danger: #f87171; --warn: #fbbf24;
+    --text: #e2e8f0; --muted: #64748b;
+    --border: #2d3348; --radius: 8px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+    --mono: 'Cascadia Code', 'Consolas', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 280px; min-width: 220px; background: var(--bg2);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  #sidebar-header { padding: 18px 16px 12px; border-bottom: 1px solid var(--border); }
+  #sidebar-header h1 { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: .5px; }
+  #sidebar-header p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  #upload-zone {
+    margin: 12px; padding: 16px 12px; border: 2px dashed var(--border);
+    border-radius: var(--radius); text-align: center; cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  #upload-zone:hover, #upload-zone.drag { border-color: var(--accent); background: rgba(108,99,255,.07); }
+  #upload-zone .icon { font-size: 22px; margin-bottom: 6px; }
+  #upload-zone p { font-size: 12px; color: var(--muted); }
+  #upload-zone strong { color: var(--text); }
+  #file-input { display: none; }
+
+  #upload-progress {
+    display: none; margin: 0 12px 8px; background: var(--bg3);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  #upload-bar { height: 4px; background: var(--accent); width: 0; transition: width .1s; }
+  #upload-status { font-size: 11px; color: var(--muted); padding: 6px 10px; }
+
+  #apk-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  #apk-list h2 { font-size: 10px; font-weight: 600; text-transform: uppercase;
+                  letter-spacing: 1px; color: var(--muted); padding: 10px 8px 6px; }
+  .apk-item {
+    padding: 10px 12px; border-radius: var(--radius); cursor: pointer;
+    margin-bottom: 4px; border: 1px solid transparent; transition: all .15s;
+  }
+  .apk-item:hover  { background: var(--bg3); border-color: var(--border); }
+  .apk-item.active { background: rgba(108,99,255,.15); border-color: var(--accent); }
+  .apk-item .name  { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .apk-item .meta  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .apk-item .pkg   { font-size: 10px; color: var(--accent); margin-top: 1px; font-family: var(--mono); }
+  .apk-delete { float: right; background: none; border: none; color: var(--muted);
+                cursor: pointer; font-size: 14px; padding: 0 2px; }
+  .apk-delete:hover { color: var(--danger); }
+
+  /* ── Main ── */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  #empty-state {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; color: var(--muted); text-align: center; padding: 40px;
+  }
+  #empty-state .big { font-size: 48px; margin-bottom: 16px; }
+  #empty-state h2   { font-size: 18px; color: var(--text); margin-bottom: 8px; }
+  #empty-state p    { font-size: 14px; line-height: 1.6; }
+
+  #detail { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+
+  /* ── APK header bar ── */
+  #apk-header {
+    padding: 16px 24px; background: var(--bg2); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px;
+  }
+  #apk-header .apk-icon { font-size: 32px; }
+  #apk-header .apk-title { flex: 1; min-width: 0; }
+  #apk-header .apk-title h2 { font-size: 16px; font-weight: 600; }
+  #apk-header .apk-title .pkg { font-size: 12px; color: var(--accent); font-family: var(--mono); margin-top: 2px; }
+  .badge {
+    display: inline-flex; align-items: center; padding: 2px 8px;
+    border-radius: 99px; font-size: 11px; font-weight: 600;
+    background: rgba(108,99,255,.2); color: var(--accent); margin-right: 6px;
+  }
+  .badge.danger { background: rgba(248,113,113,.15); color: var(--danger); }
+  .badge.ok     { background: rgba(74,222,128,.15);  color: var(--accent2); }
+
+  /* ── Tabs ── */
+  #tabs { display: flex; padding: 0 24px; background: var(--bg2);
+           border-bottom: 1px solid var(--border); gap: 4px; }
+  .tab {
+    padding: 10px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
+    border-bottom: 2px solid transparent; color: var(--muted);
+    transition: color .15s, border-color .15s; white-space: nowrap;
+  }
+  .tab:hover  { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-count  { font-size: 10px; background: var(--bg3); padding: 1px 5px;
+                border-radius: 99px; margin-left: 4px; color: var(--muted); }
+
+  /* ── Tab panels ── */
+  #panels { flex: 1; overflow-y: auto; padding: 24px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── Cards & tables ── */
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px; overflow: hidden;
+  }
+  .card-title {
+    padding: 12px 16px; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+    border-bottom: 1px solid var(--border); background: var(--bg3);
+  }
+  .card-body { padding: 16px; }
+
+  .kv-grid { display: grid; grid-template-columns: 180px 1fr; gap: 6px 12px; }
+  .kv-grid .k { color: var(--muted); font-size: 12px; }
+  .kv-grid .v { font-size: 13px; font-family: var(--mono); word-break: break-all; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .stat-box {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .stat-box .val  { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .stat-box .lbl  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .stat-box.danger .val { color: var(--danger); }
+  .stat-box.ok    .val  { color: var(--accent2); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600;
+       text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+       border-bottom: 1px solid var(--border); background: var(--bg3); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .mono { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+
+  /* ── Permission pills ── */
+  .perm-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .perm-pill {
+    padding: 3px 10px; border-radius: 99px; font-size: 11px;
+    font-family: var(--mono); background: var(--bg3); border: 1px solid var(--border);
+  }
+  .perm-pill.danger { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.3); color: var(--danger); }
+  .perm-pill.custom { background: rgba(251,191,36,.1);  border-color: rgba(251,191,36,.3);  color: var(--warn); }
+
+  /* ── File browser ── */
+  .file-search { width: 100%; padding: 8px 12px; background: var(--bg3);
+                 border: 1px solid var(--border); border-radius: var(--radius);
+                 color: var(--text); font-size: 13px; margin-bottom: 12px; outline: none; }
+  .file-search:focus { border-color: var(--accent); }
+
+  .file-row td:first-child { font-family: var(--mono); font-size: 12px; }
+  .download-btn {
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--muted); cursor: pointer; padding: 2px 8px; font-size: 11px;
+  }
+  .download-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Cert card ── */
+  .cert-card { margin-bottom: 12px; }
+  .cert-card .fingerprint { font-family: var(--mono); font-size: 11px; color: var(--muted);
+                             word-break: break-all; line-height: 1.5; }
+
+  /* ── Strings ── */
+  #string-search { width: 100%; padding: 8px 12px; background: var(--bg3);
+                   border: 1px solid var(--border); border-radius: var(--radius);
+                   color: var(--text); font-size: 13px; margin-bottom: 12px; outline: none; }
+  #string-search:focus { border-color: var(--accent); }
+  .string-list  { display: flex; flex-wrap: wrap; gap: 6px; }
+  .string-token {
+    padding: 2px 8px; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; font-family: var(--mono); font-size: 11px;
+    max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>APK Extractor</h1>
+    <p>Upload an APK to analyse</p>
+  </div>
+
+  <div id="upload-zone" onclick="document.getElementById('file-input').click()"
+       ondragover="ev.preventDefault();this.classList.add('drag')"
+       ondragleave="this.classList.remove('drag')"
+       ondrop="handleDrop(event)">
+    <div class="icon">📦</div>
+    <p><strong>Click or drag</strong> an APK here</p>
+    <input type="file" id="file-input" accept=".apk" onchange="uploadFile(this.files[0])"/>
+  </div>
+  <div id="upload-progress">
+    <div id="upload-bar"></div>
+    <div id="upload-status">Uploading…</div>
+  </div>
+
+  <div id="apk-list">
+    <h2>Analysed APKs</h2>
+    <div id="apk-items"></div>
+  </div>
+</div>
+
+<!-- ── Main ── -->
+<div id="main">
+  <div id="empty-state">
+    <div class="big">🔍</div>
+    <h2>No APK selected</h2>
+    <p>Upload an APK using the sidebar,<br>or select one from the list.</p>
+  </div>
+
+  <div id="detail">
+    <div id="apk-header">
+      <div class="apk-icon">📱</div>
+      <div class="apk-title">
+        <h2 id="hdr-name"></h2>
+        <div class="pkg" id="hdr-pkg"></div>
+      </div>
+      <div id="hdr-badges"></div>
+    </div>
+
+    <div id="tabs">
+      <div class="tab active" data-tab="summary">Summary</div>
+      <div class="tab" data-tab="manifest">Manifest</div>
+      <div class="tab" data-tab="permissions">Permissions <span class="tab-count" id="tc-perms">0</span></div>
+      <div class="tab" data-tab="components">Components</div>
+      <div class="tab" data-tab="files">Files <span class="tab-count" id="tc-files">0</span></div>
+      <div class="tab" data-tab="dex">DEX</div>
+      <div class="tab" data-tab="native">Native Libs</div>
+      <div class="tab" data-tab="assets">Assets</div>
+      <div class="tab" data-tab="certs">Certificates</div>
+      <div class="tab" data-tab="strings">Strings <span class="tab-count" id="tc-strings">0</span></div>
+    </div>
+
+    <div id="panels">
+      <!-- Summary -->
+      <div class="panel active" id="panel-summary">
+        <div class="stats-grid" id="stat-boxes"></div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-title">File Info</div>
+          <div class="card-body"><div class="kv-grid" id="file-info-kv"></div></div>
+        </div>
+      </div>
+
+      <!-- Manifest -->
+      <div class="panel" id="panel-manifest">
+        <div class="card">
+          <div class="card-title">App Info</div>
+          <div class="card-body"><div class="kv-grid" id="manifest-kv"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Application Attributes</div>
+          <div class="card-body"><div class="kv-grid" id="app-attrs-kv"></div></div>
+        </div>
+      </div>
+
+      <!-- Permissions -->
+      <div class="panel" id="panel-permissions">
+        <div class="card">
+          <div class="card-title">Dangerous Permissions</div>
+          <div class="card-body"><div class="perm-list" id="perms-danger"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Normal Permissions</div>
+          <div class="card-body"><div class="perm-list" id="perms-normal"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Custom / Third-party Permissions</div>
+          <div class="card-body"><div class="perm-list" id="perms-custom"></div></div>
+        </div>
+      </div>
+
+      <!-- Components -->
+      <div class="panel" id="panel-components">
+        <div class="card">
+          <div class="card-title">Activities</div>
+          <div class="card-body" id="comp-activities"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Services</div>
+          <div class="card-body" id="comp-services"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Broadcast Receivers</div>
+          <div class="card-body" id="comp-receivers"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Content Providers</div>
+          <div class="card-body" id="comp-providers"></div>
+        </div>
+      </div>
+
+      <!-- Files -->
+      <div class="panel" id="panel-files">
+        <input class="file-search" id="file-search" placeholder="Filter files by path…" oninput="filterFiles(this.value)"/>
+        <div class="card">
+          <table>
+            <thead><tr><th>Path</th><th>Size</th><th>Compressed</th><th></th></tr></thead>
+            <tbody id="files-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DEX -->
+      <div class="panel" id="panel-dex">
+        <div id="dex-content"></div>
+      </div>
+
+      <!-- Native -->
+      <div class="panel" id="panel-native">
+        <div class="card">
+          <table>
+            <thead><tr><th>ABI</th><th>Library</th><th>Size</th></tr></thead>
+            <tbody id="native-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Assets -->
+      <div class="panel" id="panel-assets">
+        <div class="card">
+          <table>
+            <thead><tr><th>Path</th><th>Type</th><th>Size</th></tr></thead>
+            <tbody id="assets-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Certificates -->
+      <div class="panel" id="panel-certs">
+        <div id="certs-content"></div>
+      </div>
+
+      <!-- Strings -->
+      <div class="panel" id="panel-strings">
+        <input class="file-search" id="string-search" placeholder="Filter strings…" oninput="filterStrings(this.value)"/>
+        <div class="string-list" id="strings-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── state ──────────────────────────────────────────────────────────────────
+let currentId   = null;
+let allFiles    = [];
+let allStrings  = [];
+
+// ── boot ───────────────────────────────────────────────────────────────────
+loadApkList();
+
+// ── sidebar list ───────────────────────────────────────────────────────────
+async function loadApkList() {
+  const res  = await fetch('/api/apks');
+  const apks = await res.json();
+  const el   = document.getElementById('apk-items');
+  el.innerHTML = '';
+  if (!apks.length) {
+    el.innerHTML = '<p style="padding:8px 12px;font-size:12px;color:var(--muted)">No APKs yet</p>';
+    return;
+  }
+  apks.forEach(a => {
+    const div = document.createElement('div');
+    div.className = 'apk-item' + (a.id === currentId ? ' active' : '');
+    div.innerHTML = `
+      <button class="apk-delete" onclick="deleteApk('${a.id}',event)" title="Delete">✕</button>
+      <div class="name">${esc(a.filename)}</div>
+      <div class="meta">${a.fileSizeHuman} &bull; ${a.versionName || '—'}</div>
+      <div class="pkg">${esc(a.package || '—')}</div>`;
+    div.addEventListener('click', () => selectApk(a.id));
+    el.appendChild(div);
+  });
+}
+
+// ── upload ─────────────────────────────────────────────────────────────────
+function handleDrop(ev) {
+  ev.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag');
+  const file = ev.dataTransfer.files[0];
+  if (file) uploadFile(file);
+}
+
+async function uploadFile(file) {
+  if (!file || !file.name.endsWith('.apk')) {
+    alert('Please select a .apk file'); return;
+  }
+  const prog   = document.getElementById('upload-progress');
+  const bar    = document.getElementById('upload-bar');
+  const status = document.getElementById('upload-status');
+  prog.style.display = 'block';
+  bar.style.width    = '0%';
+  status.textContent = `Uploading ${file.name}…`;
+
+  const fd = new FormData();
+  fd.append('apk', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 80);
+      bar.style.width = pct + '%';
+      status.textContent = `Uploading… ${pct}%`;
+    }
+  };
+
+  xhr.onload = async () => {
+    bar.style.width = '100%';
+    status.textContent = xhr.status === 201 ? 'Done!' : 'Error';
+    let parsed = null;
+    try { parsed = JSON.parse(xhr.responseText); } catch (_) {}
+
+    if (xhr.status === 201 && parsed) {
+      await loadApkList();
+      selectApk(parsed.id);
+    } else {
+      const msg = parsed?.error || parsed?.trace || xhr.responseText.slice(0, 300) || xhr.statusText;
+      status.textContent = 'Failed: ' + msg.split('\n')[0];
+      console.error('Upload error:', msg);
+    }
+    setTimeout(() => { prog.style.display = 'none'; }, 3000);
+  };
+
+  xhr.onerror = () => { alert('Network error'); prog.style.display = 'none'; };
+  xhr.send(fd);
+}
+
+// ── select APK ─────────────────────────────────────────────────────────────
+async function selectApk(id) {
+  currentId = id;
+
+  // Update sidebar highlight
+  document.querySelectorAll('.apk-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('.pkg')?.textContent === id ||
+      el.onclick?.toString().includes(id));
+  });
+  document.querySelectorAll('.apk-item').forEach(el =>
+    el.classList.toggle('active', el.getAttribute('data-id') === id));
+
+  document.getElementById('empty-state').style.display = 'none';
+  const detail = document.getElementById('detail');
+  detail.style.display = 'flex';
+
+  // Fetch all data in parallel
+  const [summary, manifest, perms, components, files, dex, native, assets, certs, strings] =
+    await Promise.all([
+      fetch(`/api/apk/${id}/summary`).then(r => r.json()),
+      fetch(`/api/apk/${id}/manifest`).then(r => r.json()),
+      fetch(`/api/apk/${id}/permissions`).then(r => r.json()),
+      fetch(`/api/apk/${id}/components`).then(r => r.json()),
+      fetch(`/api/apk/${id}/files`).then(r => r.json()),
+      fetch(`/api/apk/${id}/dex`).then(r => r.json()),
+      fetch(`/api/apk/${id}/native-libs`).then(r => r.json()),
+      fetch(`/api/apk/${id}/assets`).then(r => r.json()),
+      fetch(`/api/apk/${id}/certificates`).then(r => r.json()),
+      fetch(`/api/apk/${id}/strings?limit=2000`).then(r => r.json()),
+    ]);
+
+  renderHeader(summary);
+  renderSummary(summary);
+  renderManifest(manifest);
+  renderPermissions(perms);
+  renderComponents(components);
+  renderFiles(files, id);
+  renderDex(dex);
+  renderNative(native);
+  renderAssets(assets);
+  renderCerts(certs);
+  renderStrings(strings);
+
+  // Tab counts
+  document.getElementById('tc-perms').textContent    = perms.count || 0;
+  document.getElementById('tc-files').textContent    = files.count || 0;
+  document.getElementById('tc-strings').textContent  = strings.total || 0;
+}
+
+// ── Header ──────────────────────────────────────────────────────────────────
+function renderHeader(s) {
+  document.getElementById('hdr-name').textContent = s.filename;
+  document.getElementById('hdr-pkg').textContent  = s.package || '(no package)';
+  document.getElementById('hdr-badges').innerHTML =
+    `<span class="badge">v${esc(s.versionName || '?')}</span>` +
+    `<span class="badge">SDK ${esc(s.minSdkVersion || '?')}–${esc(s.targetSdkVersion || '?')}</span>` +
+    (s.certCount ? `<span class="badge ok">Signed</span>` : `<span class="badge danger">Unsigned?</span>`);
+}
+
+// ── Summary ─────────────────────────────────────────────────────────────────
+function renderSummary(s) {
+  const stats = [
+    { val: s.permissionCount, lbl: 'Permissions', cls: s.permissionCount > 10 ? 'danger' : '' },
+    { val: s.activityCount,   lbl: 'Activities' },
+    { val: s.serviceCount,    lbl: 'Services' },
+    { val: s.receiverCount,   lbl: 'Receivers' },
+    { val: s.providerCount,   lbl: 'Providers' },
+    { val: s.dexCount,        lbl: 'DEX files' },
+    { val: s.nativeLibCount,  lbl: 'Native libs' },
+    { val: s.assetCount,      lbl: 'Assets' },
+    { val: s.fileCount,       lbl: 'Total files' },
+    { val: s.certCount,       lbl: 'Certificates', cls: s.certCount ? 'ok' : 'danger' },
+  ];
+  document.getElementById('stat-boxes').innerHTML = stats.map(st =>
+    `<div class="stat-box ${st.cls||''}"><div class="val">${st.val}</div><div class="lbl">${st.lbl}</div></div>`
+  ).join('');
+
+  document.getElementById('file-info-kv').innerHTML = kv({
+    'File name':    s.filename,
+    'Size':         s.fileSizeHuman,
+    'SHA-256':      s.sha256,
+    'MD5':          s.md5,
+    'Package':      s.package,
+    'Version name': s.versionName,
+    'Version code': s.versionCode,
+    'Min SDK':      s.minSdkVersion,
+    'Target SDK':   s.targetSdkVersion,
+    'Analysed at':  s.analyzedAt,
+  });
+}
+
+// ── Manifest ────────────────────────────────────────────────────────────────
+function renderManifest(m) {
+  document.getElementById('manifest-kv').innerHTML = kv({
+    'Package':          m.package,
+    'Version code':     m.versionCode,
+    'Version name':     m.versionName,
+    'Min SDK':          m.minSdkVersion,
+    'Target SDK':       m.targetSdkVersion,
+    'Compile SDK':      m.compileSdkVersion,
+  });
+  const app = m.application || {};
+  document.getElementById('app-attrs-kv').innerHTML =
+    Object.keys(app).length ? kv(app) : '<span style="color:var(--muted);font-size:12px">No application attributes found</span>';
+}
+
+// ── Permissions ─────────────────────────────────────────────────────────────
+function renderPermissions(p) {
+  const cat = p.categorized || {};
+  document.getElementById('perms-danger').innerHTML =
+    pills(cat.dangerous || [], 'danger');
+  document.getElementById('perms-normal').innerHTML =
+    pills(cat.normal || [], '');
+  document.getElementById('perms-custom').innerHTML =
+    pills(cat.custom || [], 'custom');
+}
+
+function pills(arr, cls) {
+  if (!arr.length) return '<span style="color:var(--muted);font-size:12px">None</span>';
+  return arr.map(p => `<span class="perm-pill ${cls}">${esc(p)}</span>`).join('');
+}
+
+// ── Components ──────────────────────────────────────────────────────────────
+function renderComponents(c) {
+  renderCompSection('comp-activities', c.activities || []);
+  renderCompSection('comp-services',   c.services   || []);
+  renderCompSection('comp-receivers',  c.receivers  || []);
+  renderCompSection('comp-providers',  c.providers  || []);
+}
+
+function renderCompSection(elId, items) {
+  const el = document.getElementById(elId);
+  if (!items.length) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:12px">None</span>'; return;
+  }
+  el.innerHTML = `<table><thead><tr><th>Name</th><th>Exported</th><th>Other attrs</th></tr></thead><tbody>` +
+    items.map(it => {
+      const name = it.name || it['android:name'] || '—';
+      const exported = it.exported || it['android:exported'] || '—';
+      const other = Object.entries(it)
+        .filter(([k]) => k !== 'name' && k !== 'android:name' && k !== 'exported' && k !== 'android:exported')
+        .map(([k,v]) => `${k}=${v}`)
+        .join(', ');
+      return `<tr><td class="mono">${esc(name)}</td><td>${esc(exported)}</td><td class="mono" style="color:var(--muted);font-size:11px">${esc(other)}</td></tr>`;
+    }).join('') + `</tbody></table>`;
+}
+
+// ── Files ────────────────────────────────────────────────────────────────────
+function renderFiles(f, apkId) {
+  allFiles = f.files || [];
+  buildFilesTable(allFiles, apkId);
+}
+
+function buildFilesTable(files, apkId) {
+  apkId = apkId || currentId;
+  document.getElementById('files-tbody').innerHTML = files.map(f =>
+    `<tr class="file-row">
+      <td class="mono">${esc(f.path)}</td>
+      <td>${esc(f.sizeHuman)}</td>
+      <td style="color:var(--muted)">${esc(humanSize(f.compressedSize))}</td>
+      <td><button class="download-btn" onclick="downloadFile('${apkId}','${escAttr(f.path)}')">↓</button></td>
+    </tr>`
+  ).join('');
+}
+
+function filterFiles(q) {
+  const filtered = q ? allFiles.filter(f => f.path.toLowerCase().includes(q.toLowerCase())) : allFiles;
+  buildFilesTable(filtered);
+}
+
+function downloadFile(apkId, path) {
+  window.open(`/api/apk/${apkId}/download?path=${encodeURIComponent(path)}`);
+}
+
+// ── DEX ─────────────────────────────────────────────────────────────────────
+function renderDex(dex) {
+  if (!dex.length) {
+    document.getElementById('dex-content').innerHTML = '<p style="color:var(--muted)">No DEX files found.</p>';
+    return;
+  }
+  document.getElementById('dex-content').innerHTML = dex.map(d =>
+    `<div class="card"><div class="card-title">${esc(d.name)} — ${esc(d.sizeHuman)}</div>
+     <div class="card-body"><div class="kv-grid">${kv({
+       'DEX version':  d.dexVersion,
+       'Strings':      d.stringCount,
+       'Types':        d.typeCount,
+       'Protos':       d.protoCount,
+       'Fields':       d.fieldCount,
+       'Methods':      d.methodCount,
+       'Classes':      d.classCount,
+     })}</div></div></div>`
+  ).join('');
+}
+
+// ── Native libs ──────────────────────────────────────────────────────────────
+function renderNative(libs) {
+  document.getElementById('native-tbody').innerHTML = libs.length
+    ? libs.map(l => `<tr><td>${esc(l.abi)}</td><td class="mono">${esc(l.name)}</td><td>${esc(l.sizeHuman)}</td></tr>`).join('')
+    : `<tr><td colspan="3" style="color:var(--muted)">None</td></tr>`;
+}
+
+// ── Assets ───────────────────────────────────────────────────────────────────
+function renderAssets(assets) {
+  document.getElementById('assets-tbody').innerHTML = assets.length
+    ? assets.map(a => `<tr><td class="mono">${esc(a.path)}</td><td>${esc(a.ext||'—')}</td><td>${esc(a.sizeHuman)}</td></tr>`).join('')
+    : `<tr><td colspan="3" style="color:var(--muted)">None</td></tr>`;
+}
+
+// ── Certificates ─────────────────────────────────────────────────────────────
+function renderCerts(certs) {
+  const el = document.getElementById('certs-content');
+  if (!certs.length) {
+    el.innerHTML = '<p style="color:var(--muted)">No certificates found (APK may use v2/v3 signing only).</p>';
+    return;
+  }
+  el.innerHTML = certs.map(c =>
+    `<div class="card cert-card">
+       <div class="card-title">${esc(c.source)}</div>
+       <div class="card-body">
+         <div class="kv-grid">${kv({
+           'Subject':   c.subject,
+           'Issuer':    c.issuer,
+           'Serial':    c.serial,
+           'Valid from':c.notBefore,
+           'Valid to':  c.notAfter,
+           'Algorithm': c.signatureAlgorithm,
+         })}</div>
+         ${c.sha256Fingerprint ? `<p style="margin-top:10px;font-size:11px;color:var(--muted)">SHA-256</p>
+         <p class="fingerprint">${esc(c.sha256Fingerprint)}</p>` : ''}
+       </div>
+     </div>`
+  ).join('');
+}
+
+// ── Strings ──────────────────────────────────────────────────────────────────
+function renderStrings(s) {
+  allStrings = s.strings || [];
+  buildStringList(allStrings);
+}
+
+function buildStringList(arr) {
+  document.getElementById('strings-list').innerHTML = arr.map(s =>
+    `<span class="string-token" title="${escAttr(s)}">${esc(s)}</span>`
+  ).join('');
+}
+
+function filterStrings(q) {
+  const filtered = q ? allStrings.filter(s => s.toLowerCase().includes(q.toLowerCase())) : allStrings;
+  buildStringList(filtered);
+}
+
+// ── Delete ───────────────────────────────────────────────────────────────────
+async function deleteApk(id, ev) {
+  ev.stopPropagation();
+  if (!confirm('Delete this APK analysis?')) return;
+  await fetch(`/api/apk/${id}`, { method: 'DELETE' });
+  if (currentId === id) {
+    currentId = null;
+    document.getElementById('empty-state').style.display = 'flex';
+    document.getElementById('detail').style.display = 'none';
+  }
+  loadApkList();
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(s) {
+  return String(s ?? '').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function kv(obj) {
+  return Object.entries(obj).map(([k,v]) =>
+    `<span class="k">${esc(k)}</span><span class="v mono">${esc(v ?? '—')}</span>`
+  ).join('');
+}
+function humanSize(n) {
+  if (n == null) return '—';
+  for (const u of ['B','KB','MB','GB']) { if (n < 1024) return n.toFixed(1)+' '+u; n/=1024; }
+  return n.toFixed(1)+' TB';
+}
+</script>
+</body>
+</html>
