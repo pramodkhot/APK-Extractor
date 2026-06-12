@@ -9,7 +9,6 @@ import os
 import re
 import shutil
 import struct
-import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +17,38 @@ from axml_parser import parse_manifest
 
 WORK_DIR = Path(__file__).parent / "workspace"
 WORK_DIR.mkdir(exist_ok=True)
+
+
+def _workspace_name(apk_path: Path, package: str = '', version: str = '') -> str:
+    """
+    Build a readable workspace folder name from the APK filename + version.
+    Falls back to package name if the filename looks like a system temp file.
+    Handles duplicate names by appending _2, _3, ...
+    """
+    stem = apk_path.stem
+    # Temp filenames look like tmpXXXXXX — use package name instead
+    if re.match(r'^tmp[a-z0-9_]{4,}$', stem, re.IGNORECASE) and package:
+        stem = package.replace('.', '_')
+
+    # Sanitize: keep alphanumeric, underscores, hyphens
+    safe = re.sub(r'[^\w\-]', '_', stem).strip('_')
+    safe = re.sub(r'_+', '_', safe)  # collapse runs
+
+    if version:
+        ver_safe = re.sub(r'[^\w.]', '_', version)
+        safe = f"{safe}_v{ver_safe}"
+
+    if not safe:
+        safe = 'apk'
+
+    # Ensure unique folder name
+    candidate = WORK_DIR / safe
+    if not candidate.exists():
+        return safe
+    i = 2
+    while (WORK_DIR / f"{safe}_{i}").exists():
+        i += 1
+    return f"{safe}_{i}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -163,8 +194,20 @@ def _extract_printable_strings(data: bytes, min_len: int = 5) -> list[str]:
 def analyze_apk(apk_path: Path) -> dict:
     """
     Full APK analysis. Returns a dict saved as analysis.json in the workspace.
+    Workspace folder is named after the APK (e.g. ashtavakra_gita_v1.5.0/).
     """
-    apk_id = str(uuid.uuid4())
+    # Quick pre-read of the manifest to get package + version for folder naming
+    package, version = '', ''
+    try:
+        with zipfile.ZipFile(apk_path) as _zf:
+            _raw = _zf.read('AndroidManifest.xml')
+        _m = parse_manifest(_raw)
+        package = _m.get('package', '')
+        version = _m.get('versionName', '')
+    except Exception:
+        pass
+
+    apk_id = _workspace_name(apk_path, package, version)
     work   = WORK_DIR / apk_id
     work.mkdir(parents=True)
 
