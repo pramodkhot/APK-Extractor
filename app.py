@@ -16,7 +16,9 @@ from apk_analyzer import (
     get_extracted_file,
     list_apks,
     load_analysis,
+    WORK_DIR,
 )
+from flutter_generator import generate_flutter_project
 
 app = Flask(__name__)
 CORS(app)
@@ -236,6 +238,27 @@ def _categorize_permissions(perms: list[str]) -> dict:
         else:
             custom.append(p)
     return {'dangerous': dangerous, 'normal': normal, 'custom': custom}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Flutter App Generator
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route('/api/apk/<apk_id>/generate-flutter', methods=['POST'])
+def generate_flutter(apk_id):
+    try:
+        analysis = load_analysis(apk_id)
+        if not analysis:
+            return jsonify({'error': 'APK not found'}), 404
+
+        workspace_path = str(WORK_DIR / apk_id)
+        result = generate_flutter_project(workspace_path, analysis)
+        if result.get("blocked"):
+            return jsonify(result), 422
+        return jsonify(result), 200
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
 # ──────────────────────────────────────────────────────────────────────────────

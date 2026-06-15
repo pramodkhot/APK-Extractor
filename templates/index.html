@@ -83,6 +83,38 @@
   #apk-header .apk-title { flex: 1; min-width: 0; }
   #apk-header .apk-title h2 { font-size: 16px; font-weight: 600; }
   #apk-header .apk-title .pkg { font-size: 12px; color: var(--accent); font-family: var(--mono); margin-top: 2px; }
+
+  #btn-generate {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: var(--radius); border: none;
+    background: var(--accent2); color: #0f1117;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    white-space: nowrap; transition: opacity .15s, transform .1s;
+  }
+  #btn-generate:hover   { opacity: .85; }
+  #btn-generate:active  { transform: scale(.97); }
+  #btn-generate:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Generation result bar ── */
+  #gen-result-bar {
+    display: none; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 24px; background: var(--bg3); border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .level-badge {
+    padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .level-badge.l1       { background: rgba(74,222,128,.15);  color: var(--accent2); border: 1px solid rgba(74,222,128,.3);  }
+  .level-badge.l2       { background: rgba(251,191,36,.15);  color: var(--warn);    border: 1px solid rgba(251,191,36,.3);  }
+  .level-badge.l0       { background: rgba(100,116,139,.15); color: var(--muted);   border: 1px solid rgba(100,116,139,.3); }
+  .level-badge.blocked  { background: rgba(248,113,113,.15); color: var(--danger);  border: 1px solid rgba(248,113,113,.3); }
+  #gen-result-bar.is-blocked { background: rgba(248,113,113,.06); border-bottom-color: rgba(248,113,113,.2); }
+  #gen-result-path {
+    margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 11px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px;
+  }
+
   .badge {
     display: inline-flex; align-items: center; padding: 2px 8px;
     border-radius: 99px; font-size: 11px; font-weight: 600;
@@ -234,6 +266,15 @@
         <div class="pkg" id="hdr-pkg"></div>
       </div>
       <div id="hdr-badges"></div>
+      <button id="btn-generate" onclick="generateFlutterApp()" title="Generate Flutter app from this workspace">
+        🚀 Generate Flutter App
+      </button>
+    </div>
+
+    <div id="gen-result-bar">
+      <span id="gen-level-badge" class="level-badge l1"></span>
+      <span id="gen-result-desc" style="color:var(--text)"></span>
+      <span id="gen-result-path"></span>
     </div>
 
     <div id="tabs">
@@ -379,6 +420,7 @@ async function loadApkList() {
   apks.forEach(a => {
     const div = document.createElement('div');
     div.className = 'apk-item' + (a.id === currentId ? ' active' : '');
+    div.setAttribute('data-id', a.id);
     div.innerHTML = `
       <button class="apk-delete" onclick="deleteApk('${a.id}',event)" title="Delete">✕</button>
       <div class="name">${esc(a.filename)}</div>
@@ -448,14 +490,11 @@ async function selectApk(id) {
   currentId = id;
 
   // Update sidebar highlight
-  document.querySelectorAll('.apk-item').forEach(el => {
-    el.classList.toggle('active', el.querySelector('.pkg')?.textContent === id ||
-      el.onclick?.toString().includes(id));
-  });
   document.querySelectorAll('.apk-item').forEach(el =>
     el.classList.toggle('active', el.getAttribute('data-id') === id));
 
   document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('gen-result-bar').style.display = 'none';
   const detail = document.getElementById('detail');
   detail.style.display = 'flex';
 
@@ -716,6 +755,79 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
   });
 });
+
+// ── Generate Flutter App ──────────────────────────────────────────────────────
+async function generateFlutterApp() {
+  if (!currentId) return;
+  const btn = document.getElementById('btn-generate');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating…';
+  document.getElementById('gen-result-bar').style.display = 'none';
+  try {
+    const res = await fetch(`/api/apk/${currentId}/generate-flutter`, { method: 'POST' });
+    const data = await res.json();
+    if (res.status === 422 && data.blocked) {
+      btn.textContent = '⚠️ Blocked';
+      showGenBlocked(data);
+    } else if (res.ok) {
+      btn.textContent = '✅ Done!';
+      showGenResult(data);
+    } else {
+      btn.textContent = '❌ Failed';
+      alert('Error: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    btn.textContent = '❌ Error';
+    alert('Network error: ' + e.message);
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '🚀 Generate Flutter App';
+    }, 3000);
+  }
+}
+
+function showGenResult(data) {
+  const bar   = document.getElementById('gen-result-bar');
+  const badge = document.getElementById('gen-level-badge');
+  const desc  = document.getElementById('gen-result-desc');
+  const path  = document.getElementById('gen-result-path');
+
+  let cls   = 'l0';
+  let label = 'Server-side Data';
+  let text  = 'No extractable data found in APK — app generated with placeholder content.';
+
+  if (data.level === 1) {
+    cls   = 'l1';
+    label = 'Level 1 — JSON';
+    text  = `${data.chapters} chapter${data.chapters === 1 ? '' : 's'} · ${data.items} items read from JSON assets.`;
+  } else if (data.level === 2) {
+    cls   = 'l2';
+    label = 'Level 2 — DEX Extract';
+    text  = `${data.items} content string${data.items === 1 ? '' : 's'} extracted from DEX bytecode · 1 chapter.`;
+  }
+
+  badge.className   = `level-badge ${cls}`;
+  badge.textContent = label;
+  desc.textContent  = text;
+  path.textContent  = data.path || '';
+  bar.classList.remove('is-blocked');
+  bar.style.display = 'flex';
+}
+
+function showGenBlocked(data) {
+  const bar   = document.getElementById('gen-result-bar');
+  const badge = document.getElementById('gen-level-badge');
+  const desc  = document.getElementById('gen-result-desc');
+  const path  = document.getElementById('gen-result-path');
+
+  badge.className   = 'level-badge blocked';
+  badge.textContent = 'Server-side Data';
+  desc.textContent  = data.message || 'No extractable data found — choose a different APK.';
+  path.textContent  = '';
+  bar.classList.add('is-blocked');
+  bar.style.display = 'flex';
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function esc(s) {
